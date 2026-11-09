@@ -26,7 +26,6 @@ This is an **unofficial** fork of ROCKNIX that provides support for additional d
 - **free-j2me**: J2ME SDL2 frontend standalone
 - **OpenBOR-ff**: OpenBOR-ff variant
 - **drastic_adv-sa**: Advanced Drastic NDS emulator
-- **fbneoplus-lr**: FBNeo Plus libretro core
 - **ruffle-sa**: Flash emulator
 
 ### Additional Apps & Tools
