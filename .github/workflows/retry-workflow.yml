@@ -4,7 +4,9 @@ on:
   workflow_dispatch:
     inputs:
       run_id:
+        description: "Run ID from the Actions run URL"
         required: true
+        type: string
 jobs:
   rerun:
     runs-on: ubuntu-24.04
