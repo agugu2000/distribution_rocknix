@@ -55,7 +55,7 @@ if [ -f ${STAMP} ]; then
   rm -f ${STAMP}
 fi
 
-${SCRIPTS}/unpack "${PKG_NAME}" "${PARENT_PKG}"
+${SCRIPTS}/unpack "${PKG_NAME}" "${PARENT_PKG}" || die
 
 # build dependencies, only when PKG_DEPENDS_? is filled
 unset _pkg_depends
