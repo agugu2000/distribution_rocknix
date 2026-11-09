@@ -1,0 +1,175 @@
+power: supply: rk817: re-base an over-full coulomb counter
+
+The RK817 coulomb counter is only re-based when the PMIC is power cycled.
+The charger keeps pushing charge into the battery past the point this driver
+considers full, so on RK3566 handhelds the counter regularly ends up above
+the full charge capacity fcc. charge_now is then clamped to fcc and
+POWER_SUPPLY_PROP_CAPACITY reports 100% until that excess has been consumed
+again, which makes the gauge look stuck at 100% right after the charger is
+unplugged and then drop quickly (observed on MINILOONG Pocket1: 100% held
+for ~25 minutes / ~240mAh, and once for 2751mAh).
+
+Re-base the counter to fcc when it is seen above fcc while discharging, so
+the reported capacity starts decreasing as soon as the device runs on
+battery. This mirrors what rk817_bat_calib_cap() already does for the
+CHARGE_FINISH case, only triggered from the discharge side, because with the
+charge voltage programmed to 4.3V the battery never reaches the condition
+that would run that calibration.
+
+Only one re-base is done per discharge session: if the counter still reads
+over-full afterwards, the new base has not reached the PMIC yet, and the same
+write would otherwise be repeated, and logged, on every 8 second update.
+
+Readings above 3x fcc are ignored: a pack cannot hold that much, so such a
+value comes from a failed register read, and re-basing on it would wipe an
+otherwise valid counter. A tighter bound, (over_uah - fcc_uah) > fcc_uah, was
+tried and dropped: it also rejects a real over-full counter of 2751mAh on a
+pack whose fcc is not much larger, which is the reading this patch exists for.
+
+The behaviour is gated behind a module parameter so it can be disabled at
+runtime without rebuilding the kernel:
+
+  echo 0 > /sys/module/rk817_charger/parameters/overfull_recalib
+
+Note: the excess is charge the counter believes the battery took. Part of it
+may be real, so after a re-base the pack can keep running for a few percent
+at 0%. That is preferable to reporting 100% for hours while the pack is
+already partly empty.
+
+Signed-off-by: agugu2000 <agugu2000@users.noreply.github.com>
+
+diff --git a/drivers/power/supply/rk817_charger.c b/drivers/power/supply/rk817_charger.c
+index 9436c6b..d088c7d 100644
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -11,6 +11,7 @@
+ #include <linux/unaligned.h>
+ #include <linux/devm-helpers.h>
+ #include <linux/mfd/rk808.h>
++#include <linux/module.h>
+ #include <linux/irq.h>
+ #include <linux/of.h>
+ #include <linux/platform_device.h>
+@@ -87,6 +88,9 @@ struct rk817_charger {
+ 	 */
+ 	bool soc_cal;
+ 
++	/* An over-full counter was re-based during this discharge session. */
++	bool overfull_rebased;
++
+ 	/* Implementation specific immutable properties from device tree */
+ 	int res_div;
+ 	int sleep_enter_current_ua;
+@@ -108,6 +112,25 @@ struct rk817_charger {
+ 	struct delayed_work work;
+ };
+ 
++/*
++ * The RK817 coulomb counter is only re-based when the PMIC is power cycled.
++ * The charger, however, keeps pushing charge into the battery past the point
++ * this driver considers full, so the counter can end up above the full charge
++ * capacity. Clamping it there reports 100% until that excess has been consumed
++ * again, which makes the gauge look stuck at 100% right after unplugging and
++ * then drop quickly.
++ *
++ * When enabled, an over-full counter seen while discharging is re-based to the
++ * full charge capacity, so the reported capacity starts dropping as soon as the
++ * charger is unplugged. Runtime kill switch:
++ *
++ *   echo 0 > /sys/module/rk817_charger/parameters/overfull_recalib
++ */
++static bool overfull_recalib = true;
++module_param(overfull_recalib, bool, 0644);
++MODULE_PARM_DESC(overfull_recalib,
++		 "Re-base an over-full coulomb counter instead of pinning capacity at 100%");
++
+ /* ADC coefficients extracted from BSP kernel */
+ #define ADC_TO_CURRENT(adc_value, res_div)	\
+ 	(adc_value * 172 / res_div)
+@@ -332,6 +355,75 @@ static int rk817_bat_calib_cap(struct rk817_charger *charger)
+ 	return 0;
+ }
+ 
++/*
++ * Re-base an over-full coulomb counter to the full charge capacity.
++ *
++ * Only acts while discharging: that is where an over-full counter turns into a
++ * stuck 100% reading, and it also avoids touching the counter while the charger
++ * is still pushing charge in. The current reading used here is the one from the
++ * previous update, which is good enough to tell charging and discharging apart.
++ *
++ * Only one re-base is done per discharge session. If the counter still reads
++ * over-full afterwards, the new base has not reached the PMIC yet, and redoing
++ * the same register write every update would only repeat it and its log line
++ * until the counter catches up.
++ *
++ * A reading more than 3x fcc is treated as a failed register read and ignored:
++ * no pack holds that much, and re-basing on it would wipe a valid counter. The
++ * tighter (over_uah - fcc_uah) > fcc_uah was considered and dropped, it also
++ * rejects a real over-full counter (2751mAh has been seen on a pack whose fcc
++ * is not much larger), which is the case this patch is here for. Only a read
++ * landing between fcc and 3x fcc gets through, and one of those costs a charge
++ * cycle to correct.
++ *
++ * Limits: the current sample is one update old, so an unplug is acted on up to
++ * eight seconds late and a plug in can still look like discharging once. And
++ * when the PMIC does not take the write, nothing retries it until the next
++ * discharge.
++ */
++static void rk817_recalib_overfull(struct rk817_charger *charger)
++{
++	struct rk808 *rk808 = charger->rk808;
++	int fcc_uah = charger->fcc_mah * 1000;
++	int over_uah = charger->charge_now_uah;
++	u8 bulk_reg[4];
++	int charge_now_adc;
++
++	if (!overfull_recalib)
++		return;
++
++	if (!charger->battery_present)
++		return;
++
++	if (charger->cur_avg_ua >= 0) {
++		/* Charging or idle, the next discharge may re-base again. */
++		charger->overfull_rebased = false;
++		return;
++	}
++
++	if (charger->overfull_rebased)
++		return;
++
++	if (over_uah <= fcc_uah)
++		return;
++
++	if (over_uah > fcc_uah * 3)
++		return;
++
++	charge_now_adc = CHARGE_TO_ADC(charger->fcc_mah, charger->res_div);
++	put_unaligned_be32(charge_now_adc, bulk_reg);
++	if (regmap_bulk_write(rk808->regmap, RK817_GAS_GAUGE_Q_INIT_H3,
++			      bulk_reg, 4) < 0)
++		return;
++
++	charger->charge_now_uah = fcc_uah;
++	charger->overfull_rebased = true;
++
++	dev_info(charger->dev,
++		 "counter %d uAh above full capacity %d uAh, re-based\n",
++		 over_uah, fcc_uah);
++}
++
+ static void rk817_read_props(struct rk817_charger *charger)
+ {
+ 	int tmp, reg;
+@@ -360,6 +452,10 @@ static void rk817_read_props(struct rk817_charger *charger)
+ 	charger->charge_now_uah = ADC_TO_CHARGE_UAH(tmp, charger->res_div);
+ 	if (charger->charge_now_uah < 0)
+ 		charger->charge_now_uah = 0;
++
++	/* Re-base an over-full counter before it gets clamped below. */
++	rk817_recalib_overfull(charger);
++
+ 	if (charger->charge_now_uah > charger->fcc_mah * 1000)
+ 		charger->charge_now_uah = charger->fcc_mah * 1000;
+ 
