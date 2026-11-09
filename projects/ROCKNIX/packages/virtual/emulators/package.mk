@@ -538,8 +538,8 @@ makeinstall_target() {
   add_es_system gba
 
   ### Nintendo GameBoy Advance Hacks
-  add_emu_core gba retroarch gpsp_ezode_32b true
-  add_emu_core gba retroarch mgba false
+  add_emu_core gbah retroarch gpsp_ezode_32b true
+  add_emu_core gbah retroarch mgba false
   add_emu_core gbah retroarch vbam false
   add_emu_core gbah retroarch vba_next false
   add_emu_core gbah retroarch beetle_gba false
@@ -1183,7 +1183,7 @@ makeinstall_target() {
   ### Sega Genesis Hacks
   add_emu_core genh retroarch genesis_plus_gx true
   add_emu_core genh retroarch genesis_plus_gx_wide false
-  add_emu_core genesis retroarch genesis_plus_gx_EX false
+  add_emu_core genh retroarch genesis_plus_gx_EX false
   add_emu_core genh retroarch picodrive false
   case ${DEVICE} in
     H700|RK3326*|RK3399|RK3566|RK356X|A527|RK3588|SM8250|SM8550|SM8650)
@@ -1207,7 +1207,7 @@ makeinstall_target() {
   ### Sega MegaDrive
   add_emu_core megadrive retroarch genesis_plus_gx true
   add_emu_core megadrive retroarch genesis_plus_gx_wide false
-  add_emu_core genesis retroarch genesis_plus_gx_EX false
+  add_emu_core megadrive retroarch genesis_plus_gx_EX false
   add_emu_core megadrive retroarch picodrive false
   case ${DEVICE} in
     H700|RK3326*|RK3399|RK3566|RK356X|A527|RK3588|SM8250|SM8550|SM8650)
@@ -1219,7 +1219,7 @@ makeinstall_target() {
   ### Sega MegaDrive Hacks
   add_emu_core megadriveh retroarch genesis_plus_gx true
   add_emu_core megadriveh retroarch genesis_plus_gx_wide false
-  add_emu_core genesis retroarch genesis_plus_gx_EX false
+  add_emu_core megadriveh retroarch genesis_plus_gx_EX false
   add_emu_core megadriveh retroarch picodrive false
   case ${DEVICE} in
     H700|RK3326*|RK3399|RK3566|RK356X|A527|RK3588|SM8250|SM8550|SM8650)
@@ -1332,8 +1332,8 @@ makeinstall_target() {
   add_emu_core snesh retroarch snes9x2002 false
   add_emu_core snesh retroarch snes9x2005_plus false
   add_emu_core snesh retroarch beetle_supafaust false
-  add_emu_core snes retroarch bsnes_mercury_accuracy false
-  add_emu_core snes retroarch bsnes_mercury_balanced false
+  add_emu_core snesh retroarch bsnes_mercury_accuracy false
+  add_emu_core snesh retroarch bsnes_mercury_balanced false
   add_emu_core snesh retroarch bsnes_mercury_performance false
   case ${DEVICE} in
     RK3399|RK3588|SDM845|SM8250|SM8550|SM8650|S922X)
@@ -1354,8 +1354,8 @@ makeinstall_target() {
   add_emu_core sfc retroarch snes9x2002 false
   add_emu_core sfc retroarch snes9x2005_plus false
   add_emu_core sfc retroarch beetle_supafaust false
-  add_emu_core snes retroarch bsnes_mercury_accuracy false
-  add_emu_core snes retroarch bsnes_mercury_balanced false
+  add_emu_core sfc retroarch bsnes_mercury_accuracy false
+  add_emu_core sfc retroarch bsnes_mercury_balanced false
   add_emu_core sfc retroarch bsnes_mercury_performance false
   case ${DEVICE} in
     RK3399|RK3588|SDM845|SM8250|SM8550|SM8650|S922X)
@@ -1365,7 +1365,7 @@ makeinstall_target() {
   esac
   case ${DEVICE} in
     H700|RK3326*|RK3399|RK3566|RK356X|A527|RK3588|SM8250|SM8550|SM8650)
-      add_emu_core snes mednafen snes_faust false
+      add_emu_core sfc mednafen snes_faust false
       ;;
   esac
   add_es_system sfc
