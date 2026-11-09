@@ -547,7 +547,11 @@ done
 acquire_update_lock sysroot
 
 mkdir -p "${PKG_ORIG_SYSROOT_PREFIX}"
-cp -PRf "${SYSROOT_PREFIX}"/* "${PKG_ORIG_SYSROOT_PREFIX}"
+# A custom makeinstall_target can leave the temporary sysroot empty. The glob
+# did not expand in that case and cp failed the whole package.
+if [ -d "${SYSROOT_PREFIX}" ]; then
+  cp -PRf "${SYSROOT_PREFIX}"/. "${PKG_ORIG_SYSROOT_PREFIX}"
+fi
 
 release_update_lock
 

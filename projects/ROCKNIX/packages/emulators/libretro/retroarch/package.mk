@@ -158,18 +158,30 @@ makeinstall_target() {
     # Copy achievements hooks script
     cp ${PKG_DIR}/scripts/call_achievements_hooks.sh ${INSTALL}/usr/share/libretro
 
+  # The latest tag moves when a new set is uploaded, so pin the release. Each
+  # zip is one screen resolution, an image without it is missing that frame,
+  # so a zip that does not arrive stops the package instead of being skipped.
+  BEZEL_TAG="release-6-060c4a9"
+  BEZEL_URL="https://github.com/AveyondFly/bezels/releases/download/${BEZEL_TAG}"
   mkdir -p ${INSTALL}/usr/share/misc/
-  curl -fsSL https://api.github.com/repos/AveyondFly/bezels/releases/latest \
-    | sed -n 's/.*"browser_download_url": "\(https:\/\/github\.com\/AveyondFly\/bezels\/releases\/download\/[^"]*\/bezels_[^"]*\.zip\)".*/\1/p' \
-    > ${PKG_BUILD}/bezels.urls
-  [ -s ${PKG_BUILD}/bezels.urls ] || { echo "(bezels assets not found)" ; exit 1 ; }
-
-  while read -r bezel_url
+  BEZEL_MISSING=
+  for bezel_zip in bezels_1024x768.zip bezels_1280x720.zip bezels_480x320.zip \
+                   bezels_640x480.zip bezels_720x720.zip bezels_854x480.zip \
+                   bezels_960x544.zip bezels_960x720.zip
   do
-    bezel_zip=${bezel_url##*/}
-    curl -fLo ${PKG_BUILD}/${bezel_zip} ${bezel_url}
-    cp ${PKG_BUILD}/${bezel_zip} ${INSTALL}/usr/share/misc/
-  done < ${PKG_BUILD}/bezels.urls
+    if ! curl -fLo ${PKG_BUILD}/${bezel_zip} \
+      --retry 5 --retry-delay 10 --connect-timeout 30 --max-time 120 \
+      ${BEZEL_URL}/${bezel_zip} ||
+      ! cp ${PKG_BUILD}/${bezel_zip} ${INSTALL}/usr/share/misc/
+    then
+      BEZEL_MISSING="${BEZEL_MISSING} ${bezel_zip}"
+    fi
+  done
+
+  if [ -n "${BEZEL_MISSING}" ]; then
+    echo "::error::bezels missing:${BEZEL_MISSING}"
+    exit 1
+  fi
 }
 
 post_install() {

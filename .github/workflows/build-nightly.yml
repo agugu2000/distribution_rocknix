@@ -287,9 +287,11 @@ jobs:
       OFFICIAL: ${{ needs.set-envs.outputs.OFFICIAL }}
 
   rerun-failed-jobs:
-    if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 3 && github.ref_name == 'next' && (github.event_name != 'schedule' || github.repository == 'AveyondFly/distribution_rocknix')
+    if: always() && !cancelled() && (contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')) && fromJSON(github.run_attempt) < 3 && (github.ref_name == 'next' || github.ref_name == 'myfix') && (github.event_name != 'schedule' || github.repository == 'AveyondFly/distribution_rocknix')
     needs: build-devices
     runs-on: ubuntu-24.04
+    permissions:
+      actions: write
     steps:
       - env:
           GH_REPO: ${{ github.repository }}
