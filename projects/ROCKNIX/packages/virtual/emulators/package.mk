@@ -462,7 +462,7 @@ makeinstall_target() {
   add_es_system macintosh
 
   ### Nintendo Game and Watch
-  add_emu_core gameandwatch retroarch gw
+  add_emu_core gameandwatch retroarch gw true
   add_emu_core gameandwatch retroarch mame
   add_es_system gameandwatch
 
@@ -767,7 +767,7 @@ makeinstall_target() {
   esac
 
   ### Microsoft MS-DOS
-  add_emu_core pc retroarch dosbox_pure
+  add_emu_core pc retroarch dosbox_pure true
   add_emu_core pc retroarch dosbox_core
   add_es_system pc
 
@@ -1294,7 +1294,7 @@ makeinstall_target() {
   add_es_system zx81
 
   ### NEC Super Grafx
-  add_emu_core supergrafx retroarch beetle_supergrafx
+  add_emu_core supergrafx retroarch beetle_supergrafx true
   add_emu_core supergrafx retroarch beetle_pce
   case ${DEVICE} in
     H700|RK3326*|RK3399|RK3566|RK356X|A527|RK3588|SM8250|SM8550|SM8650)
