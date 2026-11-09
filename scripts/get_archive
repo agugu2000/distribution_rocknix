@@ -35,8 +35,25 @@ then
   PKG_URLS="${PKG_URL} ${PACKAGE_MIRROR}"
 fi
 
-NBWGET=10
+# A source that answers 404/410, or a tarball that does not match PKG_SHA256,
+# will not fix itself, so those fail straight away instead of sitting in the
+# retry loop. Only a server that cannot answer right now is worth waiting for.
+SRC_RETRIES=20
+SRC_RETRY_WAIT=60
+
+# HTTP status of the last response, used to tell "gone for good" from "try again
+# later". Prints nothing when the host cannot be reached at all.
+_http_status() {
+  wget --spider --server-response --timeout=30 --tries=1 \
+    --no-check-certificate "$1" 2>&1 | \
+    awk '/^[[:space:]]*HTTP\// { code = $2 } END { if (code != "") print code }'
+}
+
+NBWGET=${SRC_RETRIES}
 while [ ${NBWGET} -gt 0 ]; do
+  BAD_SHA=
+  BAD_GONE=
+  BAD_TRANSIENT=
   for url in ${PKG_URLS}; do
     rm -f "${PACKAGE}"
     if ${WGET_CMD} "${url}"; then
@@ -44,10 +61,39 @@ while [ ${NBWGET} -gt 0 ]; do
 
       [ -z "${PKG_SHA256}" -o "${PKG_SHA256}" = "${CALC_SHA256}" ] && break 2
 
+      # Try the next url, a mirror may still carry the expected file.
+      BAD_SHA=yes
       build_msg "CLR_WARNING" "WARNING" "Incorrect checksum calculated on downloaded file: got ${CALC_SHA256} wanted ${PKG_SHA256}"
+    else
+      HTTP_STATUS=$(_http_status "${url}")
+      case "${HTTP_STATUS}" in
+        404|410)
+          BAD_GONE=yes
+          build_msg "CLR_WARNING" "WARNING" "${url} answered HTTP ${HTTP_STATUS}"
+          ;;
+        *)
+          BAD_TRANSIENT=yes
+          ;;
+      esac
     fi
   done
+
   NBWGET=$((NBWGET - 1))
+
+  # Every url failed for a reason that will not change by itself.
+  if [ -z "${BAD_TRANSIENT}" ] && [ ${NBWGET} -gt 0 ]; then
+    if [ -n "${BAD_SHA}" ]; then
+      die "\nChecksum mismatch for ${1} : got ${CALC_SHA256} wanted ${PKG_SHA256}\n"
+    fi
+    if [ -n "${BAD_GONE}" ]; then
+      die "\nCannot get ${1} sources : ${PKG_URL}\nThe source is gone, fix the url or the package.\n"
+    fi
+  fi
+
+  # Give the server a chance to come back instead of failing the whole build.
+  if [ ${NBWGET} -gt 0 ]; then
+    sleep ${SRC_RETRY_WAIT}
+  fi
 done
 
 if [ ${NBWGET} -eq 0 ]; then

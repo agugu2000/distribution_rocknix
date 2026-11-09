@@ -183,8 +183,10 @@
   BTOP_TOOL="yes"
 
 # Distribution Specific source location
-# CI uses GITHUB_REPOSITORY_OWNER; local builds use GIT_ORGANIZATION.
-  DISTRO_MIRROR="https://github.com/${GITHUB_REPOSITORY_OWNER:-${GIT_ORGANIZATION}}/distribution-sources/releases/download/sources"
+# This fork has no distribution-sources repo of its own, so point at the
+# upstream mirror, which carries the same files. ROCKNIX_SOURCE_MIRROR
+# overrides it, for when that release moves to another tag.
+  DISTRO_MIRROR="${ROCKNIX_SOURCE_MIRROR:-https://github.com/AveyondFly/distribution-sources/releases/download/sources}"
   DISTRO_SRC="https://sources.libreelec.tv/$DISTRO_VERSION"
 
 # Default size of system partition, in MB, eg. 512
