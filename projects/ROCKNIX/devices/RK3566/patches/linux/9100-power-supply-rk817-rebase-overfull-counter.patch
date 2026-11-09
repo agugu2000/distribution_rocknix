@@ -1,45 +1,46 @@
-power: supply: rk817: re-base an over-full coulomb counter
+power: supply: rk817: track the real pack capacity
 
-The RK817 coulomb counter is only re-based when the PMIC is power cycled.
-The charger keeps pushing charge into the battery past the point this driver
-considers full, so on RK3566 handhelds the counter regularly ends up above
-the full charge capacity fcc. charge_now is then clamped to fcc and
-POWER_SUPPLY_PROP_CAPACITY reports 100% until that excess has been consumed
-again, which makes the gauge look stuck at 100% right after the charger is
-unplugged and then drop quickly (observed on MINILOONG Pocket1: 100% held
-for ~25 minutes / ~240mAh, and once for 2751mAh).
+Two numbers drive what the gauge shows, and both are off on this device.
 
-Re-base the counter to fcc when it is seen above fcc while discharging, so
-the reported capacity starts decreasing as soon as the device runs on
-battery. This mirrors what rk817_bat_calib_cap() already does for the
-CHARGE_FINISH case, only triggered from the discharge side, because with the
-charge voltage programmed to 4.3V the battery never reaches the condition
-that would run that calibration.
+The full charge capacity comes from NVRAM and says 3853 mAh. A full discharge
+measured 3769 mAh from unplugging down to a counter of zero, plus 375 mAh the
+counter ran past zero before the pack was empty, so the cell holds about
+4144 mAh. That capacity is the divisor every percentage is worked out from:
+too small and the gauge reaches 0% while the pack still runs for another 39
+minutes, which is what happens today.
 
-Only one re-base is done per discharge session: if the counter still reads
-over-full afterwards, the new base has not reached the PMIC yet, and the same
-write would otherwise be repeated, and logged, on every 8 second update.
+Separately the counter is only re-based on a completed charge. The charger
+holds 4.3V against a pack the driver considers full at 4.136V, so the counter
+runs past the capacity and the reported level stays at 100% until the excess
+has been used up.
 
-Readings above 3x fcc are ignored: a pack cannot hold that much, so such a
-value comes from a failed register read, and re-basing on it would wipe an
-otherwise valid counter. A tighter bound, (over_uah - fcc_uah) > fcc_uah, was
-tried and dropped: it also rejects a real over-full counter of 2751mAh on a
-pack whose fcc is not much larger, which is the reading this patch exists for.
+Let a board state its capacity with a device tree property on the charger
+node, read in probe where the other rockchip properties are read. Only
+miniloong sets it, every other board keeps the NVRAM value and its own
+behaviour. The sanity check on the NVRAM figure is widened to 10% over the
+design capacity so a value this driver learned is not thrown away on the next
+boot.
 
-The behaviour is gated behind a module parameter so it can be disabled at
-runtime without rebuilding the kernel:
+Learn from a counter that runs below zero while discharging: the amount below
+zero is what the capacity is short by, because the gauge counted that much
+charge out of a pack that still had it. Three repeats below 3.5V are required
+so one bad read cannot move it, and one correction per discharge session so an
+hour at empty does not collect it over and over.
 
-  echo 0 > /sys/module/rk817_charger/parameters/overfull_recalib
+Only one direction is measurable. A capacity that is too small shows up as a
+counter below zero. A capacity that is too large shows up as the pack dying
+with a number still on screen, and by then there is nothing left to read. So
+this pulls a low figure up and never down, which is the direction that matters
+here: the factory wrote 3853 mAh for a cell holding 4144.
 
-Note: the excess is charge the counter believes the battery took. Part of it
-may be real, so after a re-base the pack can keep running for a few percent
-at 0%. That is preferable to reporting 100% for hours while the pack is
-already partly empty.
+Also re-base an over-full counter while discharging instead of clamping it,
+ignore readings above 2x the capacity, and warn when the PMIC does not take
+the write.
 
 Signed-off-by: agugu2000 <agugu2000@users.noreply.github.com>
 
 diff --git a/drivers/power/supply/rk817_charger.c b/drivers/power/supply/rk817_charger.c
-index 9436c6b..d088c7d 100644
+index 9436c6b..c2256f0 100644
 --- a/drivers/power/supply/rk817_charger.c
 +++ b/drivers/power/supply/rk817_charger.c
 @@ -11,6 +11,7 @@
@@ -50,17 +51,21 @@ index 9436c6b..d088c7d 100644
  #include <linux/irq.h>
  #include <linux/of.h>
  #include <linux/platform_device.h>
-@@ -87,6 +88,9 @@ struct rk817_charger {
+@@ -87,6 +88,13 @@ struct rk817_charger {
  	 */
  	bool soc_cal;
  
 +	/* An over-full counter was re-based during this discharge session. */
 +	bool overfull_rebased;
 +
++	/* Consecutive below-zero readings, and whether this session learned. */
++	int empty_strikes;
++	bool empty_learned;
++
  	/* Implementation specific immutable properties from device tree */
  	int res_div;
  	int sleep_enter_current_ua;
-@@ -108,6 +112,25 @@ struct rk817_charger {
+@@ -108,6 +116,35 @@ struct rk817_charger {
  	struct delayed_work work;
  };
  
@@ -83,10 +88,20 @@ index 9436c6b..d088c7d 100644
 +MODULE_PARM_DESC(overfull_recalib,
 +		 "Re-base an over-full coulomb counter instead of pinning capacity at 100%");
 +
++/*
++ * Learning the pack capacity from a counter that ran past empty. Kill switch:
++ *
++ *   echo 0 > /sys/module/rk817_charger/parameters/empty_learn
++ */
++static bool empty_learn = true;
++module_param(empty_learn, bool, 0644);
++MODULE_PARM_DESC(empty_learn,
++		 "Raise the full charge capacity when the counter runs past empty");
++
  /* ADC coefficients extracted from BSP kernel */
  #define ADC_TO_CURRENT(adc_value, res_div)	\
  	(adc_value * 172 / res_div)
-@@ -332,6 +355,75 @@ static int rk817_bat_calib_cap(struct rk817_charger *charger)
+@@ -332,6 +369,159 @@ static int rk817_bat_calib_cap(struct rk817_charger *charger)
  	return 0;
  }
  
@@ -103,13 +118,11 @@ index 9436c6b..d088c7d 100644
 + * the same register write every update would only repeat it and its log line
 + * until the counter catches up.
 + *
-+ * A reading more than 3x fcc is treated as a failed register read and ignored:
-+ * no pack holds that much, and re-basing on it would wipe a valid counter. The
-+ * tighter (over_uah - fcc_uah) > fcc_uah was considered and dropped, it also
-+ * rejects a real over-full counter (2751mAh has been seen on a pack whose fcc
-+ * is not much larger), which is the case this patch is here for. Only a read
-+ * landing between fcc and 3x fcc gets through, and one of those costs a charge
-+ * cycle to correct.
++ * A reading above 2x fcc is treated as a failed register read and ignored: no
++ * cell that fits in this device holds that much, so acting on it would wipe a
++ * counter that is still valid. The largest over-full reading measured on a
++ * real pack is 1.71x fcc, well under the bound, so the check only catches
++ * values no cell can produce and never a genuine over-full counter.
 + *
 + * Limits: the current sample is one update old, so an unplug is acted on up to
 + * eight seconds late and a plug in can still look like discharging once. And
@@ -142,14 +155,17 @@ index 9436c6b..d088c7d 100644
 +	if (over_uah <= fcc_uah)
 +		return;
 +
-+	if (over_uah > fcc_uah * 3)
++	if (over_uah > fcc_uah * 2)
 +		return;
 +
 +	charge_now_adc = CHARGE_TO_ADC(charger->fcc_mah, charger->res_div);
 +	put_unaligned_be32(charge_now_adc, bulk_reg);
 +	if (regmap_bulk_write(rk808->regmap, RK817_GAS_GAUGE_Q_INIT_H3,
-+			      bulk_reg, 4) < 0)
++			      bulk_reg, 4) < 0) {
++		dev_warn_ratelimited(charger->dev,
++				     "could not re-base the counter\n");
 +		return;
++	}
 +
 +	charger->charge_now_uah = fcc_uah;
 +	charger->overfull_rebased = true;
@@ -159,13 +175,116 @@ index 9436c6b..d088c7d 100644
 +		 over_uah, fcc_uah);
 +}
 +
++/*
++ * Learn the real capacity from a pack that keeps running past an empty
++ * counter.
++ *
++ * The counter only goes below zero when the gauge has counted more charge out
++ * than the capacity it was given, so the pack still holds charge at that
++ * point. The amount below zero is what the capacity is short by as of that
++ * moment. It under-reads a little, because the pack is cut off slightly above
++ * real empty, never over-reads. Adding it back makes the next charge start
++ * from a closer figure. That is the whole calculation, no curve, no model.
++ *
++ * Three guards keep a bad reading from moving the capacity:
++ *  - the pack has to be discharging and already below 3.5V, so a negative
++ *    value from a failed register read at 4V is ignored;
++ *  - the reading has to repeat three times, one bogus sample is not enough;
++ *  - one correction per discharge session, so an hour below zero does not
++ *    collect the same amount over and over.
++ *
++ * Only one direction is measurable. A capacity that is too small shows up as a
++ * counter below zero. A capacity that is too large shows up as the pack dying
++ * with a number still on screen, and by then there is nothing left to read, so
++ * this pulls a low figure up and never down. That is the direction that
++ * matters for a fresh pack: the factory wrote 3853 mAh for a cell holding
++ * 4144, and the level reached 0% with seven percent still in it.
++ *
++ * The result is capped at 10% over the design capacity. Past that it is not
++ * a pack that holds more than its label, it is a gauge that has lost count.
++ */
++static void rk817_learn_empty(struct rk817_charger *charger, int adc)
++{
++	u32 below;
++	int deficit_mah;
++	int fcc_max_mah;
++
++	if (!empty_learn)
++		return;
++
++	if (!charger->battery_present)
++		return;
++
++	if (charger->empty_learned)
++		return;
++
++	/* Last update's current, same as the re-base above uses. */
++	/*
++	 * Charging or idle. Only the strike count is dropped here; the learned
++	 * flag survives until the counter climbs back above zero, so a load
++	 * that happens to read zero mid-discharge cannot make the same
++	 * correction land twice.
++	 */
++	if (charger->cur_avg_ua >= 0) {
++		charger->empty_strikes = 0;
++		return;
++	}
++
++	if (charger->volt_avg_uv > 3500000) {
++		charger->empty_strikes = 0;
++		return;
++	}
++
++	if (++charger->empty_strikes < 3)
++		return;
++
++	charger->empty_strikes = 0;
++
++	/* adc is negative, this is its magnitude without the signed negation. */
++	below = 0u - (u32)adc;
++	deficit_mah = below / 3600 * 172 / charger->res_div / 1000;
++	if (!deficit_mah)
++		return;
++
++	fcc_max_mah = charger->bat_charge_full_design_uah / 1000 * 11 / 10;
++	if (charger->fcc_mah + deficit_mah > fcc_max_mah)
++		return;
++
++	charger->empty_learned = true;
++	charger->fcc_mah += deficit_mah;
++
++	dev_info(charger->dev,
++		 "counter ran %d mAh below empty, capacity is now %d mAh\n",
++		 deficit_mah, charger->fcc_mah);
++}
++
  static void rk817_read_props(struct rk817_charger *charger)
  {
  	int tmp, reg;
-@@ -360,6 +452,10 @@ static void rk817_read_props(struct rk817_charger *charger)
- 	charger->charge_now_uah = ADC_TO_CHARGE_UAH(tmp, charger->res_div);
- 	if (charger->charge_now_uah < 0)
+@@ -357,9 +547,28 @@ static void rk817_read_props(struct rk817_charger *charger)
+ 	regmap_bulk_read(charger->rk808->regmap, RK817_GAS_GAUGE_Q_PRES_H3,
+ 			 bulk_reg, 4);
+ 	tmp = get_unaligned_be32(bulk_reg);
+-	charger->charge_now_uah = ADC_TO_CHARGE_UAH(tmp, charger->res_div);
+-	if (charger->charge_now_uah < 0)
++	if (tmp < 0) {
++		/*
++		 * The counter wrapped below zero, so the pack outlasted it. Report
++		 * empty and hand the raw length below zero to the learning code.
++		 */
  		charger->charge_now_uah = 0;
++		rk817_learn_empty(charger, tmp);
++	} else {
++		charger->charge_now_uah = ADC_TO_CHARGE_UAH(tmp, charger->res_div);
++		if (charger->charge_now_uah < 0)
++			charger->charge_now_uah = 0;
++		/*
++		 * Back above zero: either still charged or on the way up. Either
++		 * way the next run below zero is a fresh correction.
++		 */
++		charger->empty_strikes = 0;
++		charger->empty_learned = false;
++	}
 +
 +	/* Re-base an over-full counter before it gets clamped below. */
 +	rk817_recalib_overfull(charger);
@@ -173,3 +292,54 @@ index 9436c6b..d088c7d 100644
  	if (charger->charge_now_uah > charger->fcc_mah * 1000)
  		charger->charge_now_uah = charger->fcc_mah * 1000;
  
+@@ -718,8 +927,14 @@ static int rk817_read_battery_nvram_values(struct rk817_charger *charger)
+ 	 * practicality purposes. Also check if the value is too large and
+ 	 * correct it.
+ 	 */
++	/*
++	 * The upper bound allows for a figure the driver learned from a pack
++	 * that outlasted the counter, which is above the design capacity. A
++	 * value past 10% over design is not a bigger cell, it is a bad register.
++	 */
+ 	if ((charger->fcc_mah < 500) ||
+-	   ((charger->fcc_mah * 1000) > charger->bat_charge_full_design_uah)) {
++	   ((charger->fcc_mah * 1000) >
++	    charger->bat_charge_full_design_uah / 10 * 11)) {
+ 		dev_info(charger->dev,
+ 			 "Invalid NVRAM max charge, setting to %u uAH\n",
+ 			 charger->bat_charge_full_design_uah);
+@@ -1066,6 +1281,7 @@ static int rk817_charger_probe(struct platform_device *pdev)
+ 	struct power_supply_config pscfg = {};
+ 	int plugin_irq, plugout_irq;
+ 	int of_value;
++	u32 fcc_uah = 0;
+ 	int ret;
+ 
+ 	node = of_get_child_by_name(dev->parent->of_node, "charger");
+@@ -1172,6 +1388,26 @@ static int rk817_charger_probe(struct platform_device *pdev)
+ 	if (ret)
+ 		return ret;
+ 
++	/*
++	 * A board can state what its cell actually holds. The NVRAM figure is
++	 * what the factory wrote and can be well short of the real capacity;
++	 * every percentage is divided by it, so a figure that is too small makes
++	 * the gauge reach 0% with charge still in the pack. Read it from the
++	 * charger node, the same one the resistor and sleep currents come from.
++	 * Boards that do not set the property keep the NVRAM figure untouched.
++	 */
++	if (!of_property_read_u32(node,
++				  "rockchip,charge-full-microamp-hours",
++				  &fcc_uah)) {
++		if (fcc_uah >= 500000 &&
++		    fcc_uah <= charger->bat_charge_full_design_uah / 10 * 11)
++			charger->fcc_mah = fcc_uah / 1000;
++		else
++			dev_warn(dev,
++				 "ignoring rockchip,charge-full-microamp-hours = %u\n",
++				 fcc_uah);
++	}
++
+ 	power_supply_put_battery_info(charger->bat_ps, bat_info);
+ 
+ 	plugin_irq = platform_get_irq(pdev, 0);

@@ -1,0 +1,92 @@
+The boot path re-derives the state of charge from the poweron voltage whenever
+the device has been off for three minutes and writes the result back into the
+coulomb counter. That voltage does not track the pack: on this board it read
+87mV above the loaded voltage after half an hour, and the boot that moved the
+gauge fifteen points works out to about 190mV of the same. Five percent is
+worth eleven millivolts around the middle of the table.
+
+Keep the counter instead. The PMIC holds it across a power cycle and it follows
+the charge that actually moved. The BSP does not look at the voltage either
+once U-Boot has set FG_INIT. Only fall back to the table when the counter reads
+zero or has run past twice the capacity.
+---
+ drivers/power/supply/rk817_charger.c | 52 ++++++++++++++++++++++++++--------------
+ 1 file changed, 34 insertions(+), 18 deletions(-)
+
+diff --git a/drivers/power/supply/rk817_charger.c b/drivers/power/supply/rk817_charger.c
+--- a/drivers/power/supply/rk817_charger.c
++++ b/drivers/power/supply/rk817_charger.c
+@@ -753,7 +753,7 @@
+ 	struct rk808 *rk808 = charger->rk808;
+ 	u8 bulk_reg[4];
+ 	u32 boot_voltage, boot_charge_mah;
+-	int ret, reg, off_time, tmp;
++	int ret, reg, tmp, coulomb_soc, ocv_soc;
+ 	bool first_boot;
+ 
+ 	/*
+@@ -811,31 +811,47 @@
+ 		boot_charge_mah = ADC_TO_CHARGE_UAH(tmp,
+ 						    charger->res_div) / 1000;
+ 		/*
+-		 * Check if the columb counter has been off for more than 30
+-		 * minutes as it tends to drift downward. If so, re-init soc
+-		 * with the boot voltage instead. Note the unit values for the
+-		 * OFF_CNT register appear to be in decaminutes and stops
+-		 * counting at 2550 (0xFF) minutes. BSP kernel used OCV, but
+-		 * for me occasionally that would show invalid values. Boot
+-		 * voltage is only accurate for me on first poweron (not
+-		 * reboots), but we shouldn't ever encounter an OFF_CNT more
+-		 * than 0 on a reboot anyway.
++		 * Keep the counter. The PMIC holds it across a power cycle and
++		 * it follows the charge that actually moved. This used to be
++		 * re-derived from the poweron voltage once the device had been
++		 * off for three minutes, but that voltage does not track the
++		 * pack: on this board it read 87mV above the loaded voltage
++		 * after half an hour, and the boot that moved the gauge fifteen
++		 * points works out to about 190mV of the same. Five percent is
++		 * worth eleven millivolts around the middle of the table.
++		 *
++		 * The BSP does not look at the voltage either once U-Boot has
++		 * set FG_INIT. Ours leaves that bit clear, so decide from the
++		 * counter and let a full charge fix whatever drifts.
++		 *
++		 * Fall back to the table only when there is nothing usable in
++		 * the counter: zero means the gauge was reset, and past twice
++		 * the capacity it has been pushed up by the charger and will
++		 * come back down on its own.
+ 		 */
+-		regmap_read(rk808->regmap, RK817_GAS_GAUGE_OFF_CNT, &off_time);
+-		if (off_time >= 3) {
++		coulomb_soc = boot_charge_mah * 1000 * 100 / charger->fcc_mah;
++
++		if (boot_charge_mah == 0 ||
++		    boot_charge_mah > charger->fcc_mah * 2) {
+ 			regmap_bulk_read(rk808->regmap,
+ 					 RK817_GAS_GAUGE_PWRON_VOL_H,
+ 					 bulk_reg, 2);
+ 			tmp = get_unaligned_be16(bulk_reg);
+ 			boot_voltage = (charger->voltage_k * tmp) +
+ 					1000 * charger->voltage_b;
+-			charger->soc =
+-				power_supply_batinfo_ocv2cap(bat_info,
+-							     boot_voltage,
+-							     20) * 1000;
++			ocv_soc = power_supply_batinfo_ocv2cap(bat_info,
++							       boot_voltage,
++							       20) * 1000;
++			/*
++			 * A missing table comes back negative, and a flat
++			 * reading is worse than keeping the counter.
++			 */
++			if (ocv_soc > 0 && ocv_soc <= 100000)
++				charger->soc = ocv_soc;
++			else
++				charger->soc = coulomb_soc;
+ 		} else {
+-			charger->soc = (boot_charge_mah * 1000 * 100 /
+-					charger->fcc_mah);
++			charger->soc = coulomb_soc;
+ 		}
+ 	}
+ 

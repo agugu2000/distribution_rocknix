@@ -60,16 +60,22 @@
 		constant-charge-current-max-microamp = <2000000>;
 		constant-charge-voltage-max-microvolt = <4300000>;
 		factory-internal-resistance-micro-ohms = <91000>;
-		voltage-max-design-microvolt = <4138000>;
+		voltage-max-design-microvolt = <4136000>;
 		voltage-min-design-microvolt = <3400000>;
-
 		ocv-capacity-celsius = <20>;
-		ocv-capacity-table-0 =  <4138000 100>, <4083000 95>, <4059000 90>, <4044000 85>,
-					<4030000 80>, <4020000 75>, <4006000 70>, <3972000 65>,
-					<3934000 60>, <3904000 55>, <3878000 50>, <3857000 45>,
-					<3843000 40>, <3826000 35>, <3801000 30>, <3768000 25>,
-					<3735000 20>, <3688000 15>, <3621000 10>, <3553000 5>,
-					<3400000 0>;
+		/*
+		 * Built from a full discharge of this pack: the charge the counter
+		 * recorded as spent against the cell voltage, with the IR drop across
+		 * the 143 mOhm measured on this board added back. The table that came
+		 * with the device was off by 45 to 54 mV between 30% and 20%, which
+		 * put the boot estimate ten points high in the lower half.
+		 */
+		ocv-capacity-table-0 =  <4136000 100>, <4093000 95>, <4062000 90>, <4048000 85>,
+					<4039000 80>, <4028000 75>, <4011000 70>, <3983000 65>,
+					<3943000 60>, <3913000 55>, <3897000 50>, <3886000 45>,
+					<3875000 40>, <3862000 35>, <3846000 30>, <3822000 25>,
+					<3787000 20>, <3736000 15>, <3628000 10>, <3574000 5>,
+					<3450000 0>;
 	};
 
 	gpio_keys_vol: gpio-keys-vol {
@@ -747,6 +753,13 @@
 
 		rk817_charger: charger {
 			monitored-battery = <&battery>;
+			/*
+			 * Measured on this pack: 3769 mAh from unplugging at 98% down
+			 * to a counter of zero, plus the 375 mAh it ran past zero
+			 * before the cell was done. The NVRAM figure is 3853 mAh, so
+			 * the gauge reached 0% with about seven percent still there.
+			 */
+			rockchip,charge-full-microamp-hours = <4145000>;
 			rockchip,resistor-sense-micro-ohms = <10000>;
 			rockchip,sleep-enter-current-microamp = <150000>;
 			rockchip,sleep-filter-current-microamp = <100000>;
