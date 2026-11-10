@@ -2,11 +2,11 @@
 # Copyright (C) 2019 Trond Haugland (trondah@gmail.com)
 
 PKG_NAME="mame-lr"
-PKG_VERSION="a90e86e100f79533f257ac2b30ccefe26a76daad"
+PKG_VERSION="5f5a07748ce5c239c4118463ce8e6473743d4859"
 PKG_LICENSE="GPLv2"
 PKG_SITE="https://github.com/libretro/mame"
 PKG_URL="https://github.com/libretro/mame/archive/${PKG_VERSION}.tar.gz"
-PKG_DEPENDS_TARGET="toolchain zlib flac sqlite expat"
+PKG_DEPENDS_TARGET="toolchain zlib flac libogg sqlite expat"
 PKG_LONGDESC="MAME - Multiple Arcade Machine Emulator"
 PKG_TOOLCHAIN="make"
 PKG_BUILD_FLAGS="-lto +pic"
@@ -46,8 +46,8 @@ PKG_MAKE_OPTS_TARGET="REGENIE=1 \
 		      USE_SYSTEM_LIB_FLAC=1 \
 		      USE_SYSTEM_LIB_SQLITE3=1"
 
-pre_configure_target() {
-  sed -i "s/-static-libstdc++//g" scripts/genie.lua
+post_unpack() {
+  sed -i "s/-static-libstdc++//g" ${PKG_BUILD}/scripts/genie.lua
 }
 
 make_target() {
@@ -58,12 +58,13 @@ make_target() {
   then
     export ARCHOPTS="-D__aarch64__ -DASMJIT_BUILD_X86"
   fi
+  export LDOPTS="-Wl,--push-state,--no-as-needed -logg -Wl,--pop-state"
   make ${PKG_MAKE_OPTS_TARGET} OVERRIDE_CC=${CC} OVERRIDE_CXX=${CXX} OVERRIDE_LD=$LD AR=${AR} ${MAKEFLAGS}
 }
 
 makeinstall_target() {
   mkdir -p ${INSTALL}/usr/lib/libretro
-  cp *.so ${INSTALL}/usr/lib/libretro/mame_libretro.so
+  cp -a mame_libretro.so ${INSTALL}/usr/lib/libretro/mame_libretro.so
   mkdir -p ${INSTALL}/usr/config/retroarch/savefiles/mame/hi
-  cp plugins/hiscore/hiscore.dat ${INSTALL}/usr/config/retroarch/savefiles/mame/hi
+  cp -a plugins/hiscore/hiscore.dat ${INSTALL}/usr/config/retroarch/savefiles/mame/hi
 }
