@@ -7,7 +7,7 @@ PKG_VERSION="fae7468de15b32a0e105e45325e5ca85e62ea7d4" # v1.22.2 + fixes
 PKG_SITE="https://github.com/libretro/RetroArch"
 PKG_URL="${PKG_SITE}/archive/${PKG_VERSION}.tar.gz"
 PKG_LICENSE="GPLv3"
-PKG_DEPENDS_TARGET="toolchain SDL2 alsa-lib libass openssl freetype zlib retroarch-assets core-info ffmpeg libass joyutils noto-cjk-fonts-kr noto-cjk-fonts-sc nss-mdns openal-soft libogg libvorbisidec libvorbis libvpx libpng libdrm pulseaudio miniupnpc flac xz"
+PKG_DEPENDS_TARGET="toolchain SDL2 alsa-lib libass openssl freetype zlib retroarch-assets core-info ffmpeg libass joyutils noto-cjk-fonts-jp noto-cjk-fonts-kr noto-cjk-fonts-sc noto-cjk-fonts-tc nss-mdns openal-soft libogg libvorbisidec libvorbis libvpx libpng libdrm pulseaudio miniupnpc flac xz"
 PKG_LONGDESC="Reference frontend for the libretro API."
 
 if [ "${PIPEWIRE_SUPPORT}" = "yes" ]; then
@@ -191,13 +191,18 @@ post_install() {
   enable_service tmp-shaders.mount
   enable_service tmp-overlays.mount
 
-  # When the menu language is Chinese or Korean Ozone loads its font from
-  # assets/pkg, and retroarch-assets strips that directory. Point those two
-  # names at the fonts we ship, otherwise there is nothing to load. Japanese
-  # is not in that list, the ozone fonts already carry kana and the JIS kanji.
+  # Ozone reads its menu font from assets/pkg and retroarch-assets strips that
+  # directory, so the four CJK faces go back under the names 0014 asks for.
+  # One file per language on purpose: they are the same font with regional
+  # glyphs, and the wrong one renders Japanese kanji in Chinese shapes or
+  # traditional text in simplified ones.
   mkdir -p ${INSTALL}/usr/share/retroarch-assets/pkg
   ln -sf /usr/share/fonts/truetype/noto/NotoSansCJKsc-Regular.otf \
-    ${INSTALL}/usr/share/retroarch-assets/pkg/chinese-fallback-font.ttf
+    ${INSTALL}/usr/share/retroarch-assets/pkg/chinese-simplified-fallback-font.ttf
+  ln -sf /usr/share/fonts/truetype/noto/NotoSansCJKtc-Regular.otf \
+    ${INSTALL}/usr/share/retroarch-assets/pkg/chinese-traditional-fallback-font.ttf
+  ln -sf /usr/share/fonts/truetype/noto/NotoSansCJKjp-Regular.otf \
+    ${INSTALL}/usr/share/retroarch-assets/pkg/japanese-fallback-font.ttf
   ln -sf /usr/share/fonts/truetype/noto/NotoSansCJKkr-Regular.otf \
     ${INSTALL}/usr/share/retroarch-assets/pkg/korean-fallback-font.ttf
 }

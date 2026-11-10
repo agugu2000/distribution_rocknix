@@ -1,0 +1,44 @@
+diff --git a/menu/drivers/ozone.c b/menu/drivers/ozone.c
+index 6181c97..877330e 100644
+--- a/menu/drivers/ozone.c
++++ b/menu/drivers/ozone.c
+@@ -9649,10 +9649,17 @@ static void ozone_set_layout(
+          fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
+          fill_pathname_join_special(font_path, tmp_dir, "fallback-font.ttf", sizeof(font_path));
+          break;
+-      case RETRO_LANGUAGE_CHINESE_SIMPLIFIED:
+       case RETRO_LANGUAGE_CHINESE_TRADITIONAL:
+          fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
+-         fill_pathname_join_special(font_path, tmp_dir, "chinese-fallback-font.ttf", sizeof(font_path));
++         fill_pathname_join_special(font_path, tmp_dir, "chinese-traditional-fallback-font.ttf", sizeof(font_path));
++         break;
++      case RETRO_LANGUAGE_CHINESE_SIMPLIFIED:
++         fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
++         fill_pathname_join_special(font_path, tmp_dir, "chinese-simplified-fallback-font.ttf", sizeof(font_path));
++         break;
++      case RETRO_LANGUAGE_JAPANESE:
++         fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
++         fill_pathname_join_special(font_path, tmp_dir, "japanese-fallback-font.ttf", sizeof(font_path));
+          break;
+       case RETRO_LANGUAGE_KOREAN:
+          fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
+@@ -9678,10 +9685,17 @@ static void ozone_set_layout(
+          fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
+          fill_pathname_join_special(font_path, tmp_dir, "fallback-font.ttf", sizeof(font_path));
+          break;
+-      case RETRO_LANGUAGE_CHINESE_SIMPLIFIED:
+       case RETRO_LANGUAGE_CHINESE_TRADITIONAL:
+          fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
+-         fill_pathname_join_special(font_path, tmp_dir, "chinese-fallback-font.ttf", sizeof(font_path));
++         fill_pathname_join_special(font_path, tmp_dir, "chinese-traditional-fallback-font.ttf", sizeof(font_path));
++         break;
++      case RETRO_LANGUAGE_CHINESE_SIMPLIFIED:
++         fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
++         fill_pathname_join_special(font_path, tmp_dir, "chinese-simplified-fallback-font.ttf", sizeof(font_path));
++         break;
++      case RETRO_LANGUAGE_JAPANESE:
++         fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
++         fill_pathname_join_special(font_path, tmp_dir, "japanese-fallback-font.ttf", sizeof(font_path));
+          break;
+       case RETRO_LANGUAGE_KOREAN:
+          fill_pathname_join_special(tmp_dir, path_directory_assets, "pkg", sizeof(tmp_dir));
