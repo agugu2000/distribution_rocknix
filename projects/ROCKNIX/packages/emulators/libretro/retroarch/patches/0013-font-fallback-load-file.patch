@@ -1,0 +1,15 @@
+diff --git a/gfx/drivers_font_renderer/freetype.c b/gfx/drivers_font_renderer/freetype.c
+--- a/gfx/drivers_font_renderer/freetype.c
++++ b/gfx/drivers_font_renderer/freetype.c
+@@ -288,8 +288,9 @@
+    }
+    else
+ #elif defined(HAVE_FONTCONFIG_SUPPORT)
+-   /* if fallback font is requested, instead of loading it, we find the full font in the system */
+-   if (!*font_path || strstr(font_path, "fallback"))
++   /* a fallback font we ship is loaded like any other file; the system is only asked when it is missing */
++   if (!*font_path ||
++       (strstr(font_path, "fallback") && !path_is_valid(font_path)))
+    {
+       FcValue locale_boxed;
+       uint8_t* font_data     = NULL;
